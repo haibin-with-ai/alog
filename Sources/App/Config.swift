@@ -33,7 +33,7 @@ class Config: ObservableObject {
     
     @AppStorage("sum_enabled") var sumEnabled = false
     
-    @AppStorage("openai_model") var aiModel = OpenAIChatModel.gpt_3_5
+    @AppStorage("openai_model") var aiModel = OpenAIChatModel.gpt_4o 
     
     @AppStorage("auto_save") var autoSave = true
     

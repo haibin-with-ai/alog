@@ -104,7 +104,7 @@ class OpenAIClient {
     // MARK: - Verification
     
     /// 验证 chat 接口
-    func verify(_ host: String, key: String?, model: OpenAIChatModel = .gpt_3_5) async throws {
+    func verify(_ host: String, key: String?, model: OpenAIChatModel = .gpt_4o) async throws {
         guard let hostURL = URL(string: host) else {
             throw URLError(.badURL)
         }
