@@ -9,6 +9,7 @@ async function handleRequest(event) {
     const request = event.request
     const url = new URL(request.url)
     const method = request.method
+    console.log("[req]", method, url.pathname);
 
     if (request.method === 'POST') {
         const clone = request.clone();
@@ -86,6 +87,7 @@ function generateHeaders(request, key) {
 }
 
 async function handleWhisperRequest(request, headers, event) {
+    console.log("[whisper] start, content-length=", request.headers.get("Content-Length"));
     const newRequest = new Request('https://api.openai.com/v1/audio/transcriptions', {
         method: "POST",
         headers: headers,
@@ -94,14 +96,22 @@ async function handleWhisperRequest(request, headers, event) {
     });
 
     const response = await fetch(newRequest);
+    console.log("[whisper] OpenAI status=", response.status, "ok=", response.ok);
 
-    if (typeof DISCORD_WEBHOOK_URL !== "undefined" && DISCORD_WEBHOOK_URL && response.ok) {
+    const hasDiscordEnv = typeof DISCORD_WEBHOOK_URL !== "undefined" && !!DISCORD_WEBHOOK_URL;
+    console.log("[discord-fwd] env set?", hasDiscordEnv, "whisper ok?", response.ok);
+
+    if (hasDiscordEnv && response.ok) {
         const forFork = response.clone();
         event.waitUntil(
             forwardTranscriptionToDiscord(forFork).catch(e => {
-                console.error("Discord forward failed:", e && e.stack ? e.stack : e);
+                console.error("[discord-fwd] failed:", e && e.stack ? e.stack : e);
             })
         );
+    } else if (!hasDiscordEnv) {
+        console.log("[discord-fwd] skipped: DISCORD_WEBHOOK_URL not set");
+    } else {
+        console.log("[discord-fwd] skipped: whisper non-OK");
     }
 
     return await modifyResponse(response)
@@ -109,17 +119,25 @@ async function handleWhisperRequest(request, headers, event) {
 
 async function forwardTranscriptionToDiscord(response) {
     const contentType = response.headers.get("Content-Type") || "";
+    console.log("[discord-fwd] parsing whisper response, content-type=", contentType);
     let text = "";
     if (contentType.includes("application/json")) {
         const data = await response.json();
         text = (data && typeof data.text === "string") ? data.text : "";
+        if (!text) console.log("[discord-fwd] JSON has no .text field, keys=", data ? Object.keys(data) : null);
     } else {
         text = await response.text();
     }
     text = text.trim();
-    if (!text) return;
+    console.log("[discord-fwd] extracted text length=", text.length);
+    if (!text) {
+        console.log("[discord-fwd] empty text, abort");
+        return;
+    }
 
     const MAX = 2000;
+    const chunkCount = Math.ceil(text.length / MAX);
+    console.log("[discord-fwd] posting", chunkCount, "chunk(s) to Discord");
     for (let i = 0; i < text.length; i += MAX) {
         const chunk = text.slice(i, i + MAX);
         const res = await fetch(DISCORD_WEBHOOK_URL, {
@@ -127,8 +145,9 @@ async function forwardTranscriptionToDiscord(response) {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ content: chunk , username: "haibin"})
         });
+        console.log("[discord-fwd] chunk", (i / MAX) + 1, "/", chunkCount, "→ status", res.status);
         if (!res.ok) {
-            console.error(`Discord webhook returned ${res.status}: ${await res.text()}`);
+            console.error(`[discord-fwd] webhook returned ${res.status}: ${await res.text()}`);
             return;
         }
     }
