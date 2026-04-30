@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import UIKit
 import WatchConnectivity
 import XLog
 
@@ -41,8 +42,48 @@ extension DataContainer {
             
             do {
                 try self.context.save()
+                self.transcribeWatchMemoInBackground(memo)
             } catch {
                 XLog.error(error, source: "DC")
+            }
+        }
+    }
+
+    /// 收到 Watch 录音后立刻触发一次转录，独立于 TimelineViewModel
+    /// （后者依赖 UI 在屏幕上）。在后台用 beginBackgroundTask 续命，前台不申请额外时间。
+    /// Transcription.shared 自带按 objectID 去重，前台 TimelineViewModel 已抢先触发时这里会被跳过。
+    private func transcribeWatchMemoInBackground(_ memo: MemoEntity) {
+        guard memo.needsTranscription else { return }
+        guard Config.shared.transEnabled else { return }
+
+        let inBackground = UIApplication.shared.applicationState != .active
+
+        var taskID: UIBackgroundTaskIdentifier = .invalid
+        if inBackground {
+            taskID = UIApplication.shared.beginBackgroundTask(withName: "AutoTranscribeWatchMemo") {
+                if taskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(taskID)
+                    taskID = .invalid
+                }
+            }
+        }
+
+        Transcription.shared.transcribe(memo) { [weak self] result in
+            DispatchQueue.main.async {
+                switch result {
+                case .success(let text):
+                    if memo.content != text {
+                        memo.content = text
+                        memo.transcribed = true
+                        try? self?.context.save()
+                    }
+                case .failure(let error):
+                    XLog.error(error, source: "DC.AutoTranscribe")
+                }
+                if taskID != .invalid {
+                    UIApplication.shared.endBackgroundTask(taskID)
+                    taskID = .invalid
+                }
             }
         }
     }

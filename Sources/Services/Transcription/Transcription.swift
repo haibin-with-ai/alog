@@ -6,6 +6,7 @@
 //
 
 import Foundation
+import CoreData
 import XLog
 import Combine
 
@@ -26,6 +27,7 @@ class Transcription {
     
     var memoQueue = [(MemoEntity, (Result<String, Error>) -> Void)]()
     var activeTask = 0
+    private var inflightIDs = Set<NSManagedObjectID>()
     
     /// 转写最大并发
     var maxConcurrent: Int {
@@ -75,7 +77,16 @@ class Transcription {
     }
     
     func transcribe(_ memo: MemoEntity, completion: @escaping (Result<String, Error>) -> Void) {
-        memoQueue.append((memo, completion))
+        let id = memo.objectID
+        if inflightIDs.contains(id) {
+            XLog.info("Transcription already in flight for \(id), skipped", source: TAG)
+            return
+        }
+        inflightIDs.insert(id)
+        memoQueue.append((memo, { [weak self] result in
+            self?.inflightIDs.remove(id)
+            completion(result)
+        }))
         processNext()
     }
     

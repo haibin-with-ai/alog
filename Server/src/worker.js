@@ -89,7 +89,8 @@ async function handleWhisperRequest(request, headers, event) {
     const newRequest = new Request('https://api.openai.com/v1/audio/transcriptions', {
         method: "POST",
         headers: headers,
-        body: request.body
+        body: request.body,
+        duplex: 'half'
     });
 
     const response = await fetch(newRequest);

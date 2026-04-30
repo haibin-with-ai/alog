@@ -128,6 +128,11 @@ npm run start   # 本地开发
 - `OpenAIChatModel`：GPT 模型选择
 - `ServerType`：默认 vs 自定义服务器配置
 
+### 自动转录两条触发路径（不能互相重复）
+- **前台路径**：`TimelineViewModel.contextDidSave` 监听 Core Data 插入，触发 `Transcription.shared.transcribe(memo)`。仅在 TimelineView 实例化时有效。
+- **后台路径**（Watch 录音专用）：`DataContainer.transcribeWatchMemoInBackground(_:)` 在 `didReceiveFileFromWatch` 收到文件并 `context.save()` 之后立即触发。后台时用 `UIApplication.beginBackgroundTask` 续命，前台时不申请额外时间。
+- **去重**：`Transcription.shared` 内部用 `Set<NSManagedObjectID>` 跟踪在飞任务，第二条路径的调用会被跳过；前台 ViewModel 通常先抢到，后台路径作为 Alog 未启动时的兜底。
+
 ## 构建配置
 
 - **Debug**：开发版本。`VoiceLog` scheme 在运行时启用 `-com.apple.CoreData.ConcurrencyDebug 1` 和 `-com.apple.CoreData.SQLDebug 1`（见 `project.yml`）。
