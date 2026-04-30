@@ -1,10 +1,14 @@
 # CLAUDE.md
 
-本文件为 Claude Code (claude.ai/code) 在此代码库中工作时提供指导。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 项目概述
 
 VoiceLog 是一个基于 SwiftUI 构建的 iOS 语音日记应用，允许用户录制音频条目，使用语音识别进行转录，并生成 AI 驱动的摘要。该应用包括 watchOS 支持、小组件和用于 AI 处理的 Cloudflare Workers 后端。
+
+- iOS 部署目标：16.0+；watchOS 部署目标：9.0+
+- Bundle ID：`app.haibin.voicelog`（主应用）、`.watch`（手表）、`.widget` / `.watch.widget`（小组件）
+- 仓库内既有 iOS 仓库前称 `alog`（App Store 名称），代码内称 VoiceLog（产品名）— 两个名称可互换出现。
 
 ## 开发命令
 
@@ -20,9 +24,19 @@ cp .env.example .env
 # 生成 Arkana 密钥包
 bundle exec bin/arkana
 
-# 生成 Xcode 项目
+# 生成 Xcode 项目（修改 project.yml 后必须重跑）
 xcodegen
 ```
+
+### 构建与测试（CLI）
+```bash
+# 通过 fastlane 跑单元测试（使用 iPhone 15 Pro 模拟器）
+bundle exec fastlane tests
+
+# 上传 TestFlight beta（需要 match 凭证 + BUILD_NUMBER 环境变量）
+bundle exec fastlane beta
+```
+CI（`.github/workflows/run-unit-tests.yml`）只在 `release/*` 分支上运行测试。
 
 ### 本地化
 ```bash
@@ -41,13 +55,8 @@ npm run start   # 本地开发
 ```
 
 ### 测试
-```bash
-# 运行单元测试（在 Xcode 中）
-# 测试目标：VoiceLogTests
-
-# 运行快照测试
-# 测试目标：SnapshotTests（使用 Snapshot 配置）
-```
+- **VoiceLogTests**：iOS 单元测试 target（在 Xcode 内运行，或通过上面的 fastlane CLI）
+- **SnapshotTests**：UI 快照测试 target，必须使用 **Snapshot** 构建配置 — 该配置定义了 `SNAPSHOT` 编译条件，应用代码会据此切换到确定性的快照夹具（详见 `Sources/App/AppDelegate+SnapshotTesting.swift`）。
 
 ## 架构
 
@@ -58,13 +67,14 @@ npm run start   # 本地开发
 - **共享组件**：跨平台使用的通用代码
 
 ### 关键目录
-- `Sources/App/`：主应用入口点、配置和应用级状态
+- `Sources/App/`：主应用入口点、配置和应用级状态（`AppState`、`Config`、`Constants`、`MainView`）
+- `Sources/Modules/`：按功能切分的特性模块 — `Recording`、`Timeline`、`Summary`、`Settings`、`Premium`、`Export`
+- `Sources/Services/`：业务逻辑 — `Transcription/`、`OpenAI/`（`OpenAIClient`）、`IAP/`、`AudioPlayer/`、`Export/`
+- `Sources/DataModel/`：Core Data（`DataModel.xcdatamodeld`、`MemoEntity`、`SummaryEntity`、`PromptEntity`、`UsageEntity`）
 - `Sources/Components/`：可重用的 SwiftUI 组件
-- `Sources/DataModel/`：Core Data 模型和持久化层
-- `Sources/Services/`：业务逻辑（转录、音频、IAP、导出）
-- `Sources/Models/`：数据模型和枚举
-- `Shared/`：跨平台代码（音频录制、连接性、本地化）
-- `Packages/`：本地 Swift 包（XLog、XLang、ArkanaKeys）
+- `Sources/Models/`：枚举与值模型（`OpenAIChatModel`、`TranscriptionProvider/Model/Lang`、`ServerType`、`DarkMode`）
+- `Shared/`：跨平台代码（`Recorder/`、`Connectivity.swift`、`Localization/`、`Intents/`）
+- `Packages/`：本地 Swift 包（`XLog`、`XLang`）；`ArkanaKeys/` 由 arkana 生成（不入库）
 
 ### 后端（Cloudflare Workers）
 - `Server/src/worker.js`：处理转录和摘要请求的主要 Worker
@@ -119,9 +129,9 @@ npm run start   # 本地开发
 
 ## 构建配置
 
-- **Debug**：带有 Core Data 调试的开发版本
-- **Snapshot**：用于快照测试，带有 DEBUG 标志
-- **AppStore**：带有生产签名的发布版本
+- **Debug**：开发版本。`VoiceLog` scheme 在运行时启用 `-com.apple.CoreData.ConcurrencyDebug 1` 和 `-com.apple.CoreData.SQLDebug 1`（见 `project.yml`）。
+- **Snapshot**：快照测试专用，编译条件为 `[DEBUG, SNAPSHOT]`。
+- **AppStore**：生产签名的发布版本。
 
 ## 本地化
 
@@ -131,9 +141,12 @@ npm run start   # 本地开发
 
 ## URL Scheme
 
-应用支持自定义 URL scheme：`voicelog://`
-- 用于快速操作和 Siri 快捷指令集成
-- 在 `AppState.openURL(_:)` 中处理
+应用支持自定义 URL scheme：`voicelog://`，由 `AppState.openURL(_:)` 处理。已实现的 host：
+- `voicelog://record` — 立即开始录音
+- `voicelog://note` — 弹出 quickMemo（手动文字笔记）
+- `voicelog://summarize` — 触发当天的 AI 摘要（需 `Config.sumEnabled`）
+
+用于 Siri 快捷指令、小组件和首页 quick action（见 `Sources/App/QuickAction.swift` 与 `StartupOption` 中的 `record` / `create_note`）。
 
 ## 测试策略
 
@@ -143,13 +156,14 @@ npm run start   # 本地开发
 
 ## IAP 和高级功能
 
-- 高级产品 ID：`app.haibin.voicelog.premium`
-- 高级用户的更高每日字符限制
-- 通过 `IAPManager` 服务管理
+- 高级产品 ID：`app.haibin.voicelog.premium`，通过 `IAPManager` 服务管理。
+- 高级用户每日字符上限提升 5 倍（`Constants.Limit.daily_characters` × 5）。
+- ⚠️ **当前 build 默认强制开启 Premium**：`AppState.init()` 会把 `isPremium` 写为 `true` 并存到 keychain（commit `218d15b 自动打开内购`）。如果在未付费的真实购买流程上做改动，需要先回滚这段逻辑，否则测试用例会"看起来都已订阅"。
 
-## 安全考虑
+## 服务器请求路径
 
-- API 密钥安全存储在 Keychain 中
-- 服务器请求的 HMAC 验证
-- 代码或提交中不包含敏感数据
-- 服务器配置使用环境变量
+`Server/src/worker.js` 只接受两条路由（其它返回 404）：
+- `POST /v1/audio/transcriptions` — 透传到 OpenAI Whisper
+- `POST /v1/chat/completions` — 透传到 OpenAI Chat（如果设置了 `AI_MODEL`，会强制覆盖客户端模型；同时只保留 `messages[0]`，丢弃其余消息）
+
+请求大小硬上限 4 MiB；如果设置了 `HMAC_KEY`，客户端必须发送 `x-alog-request-id` 与 `x-alog-hmac` header（密钥需与 `.env` 中的 `HMAC_KEY` 一致）。`OPENAI_KEY` 支持以英文逗号分隔的多个 key，每次请求随机选一个。
