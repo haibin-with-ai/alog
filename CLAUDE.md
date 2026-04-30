@@ -112,9 +112,10 @@ npm run start   # 本地开发
 ### 服务器配置
 - `wrangler.toml`：Cloudflare Workers 配置
 - 在 Cloudflare 仪表板中设置的环境变量：
-  - `OPENAI_KEY`：OpenAI API 密钥（必需）
+  - `OPENAI_KEY`：OpenAI API 密钥（必需，逗号分隔多 key 时随机轮询）
   - `HMAC_KEY`：认证密钥（可选）
   - `AI_MODEL`：默认 AI 模型（可选）
+  - `DISCORD_WEBHOOK_URL`：可选；设置后 `/v1/audio/transcriptions` 成功响应的转录文本会被异步转发到该 Discord webhook（`event.waitUntil` 不阻塞主响应；超 2000 字符自动分片）。**仅在客户端使用 OpenAI Whisper 转录时生效**，Apple 设备端转录不经过 Worker。
 
 ## 数据模型
 
@@ -166,4 +167,4 @@ npm run start   # 本地开发
 - `POST /v1/audio/transcriptions` — 透传到 OpenAI Whisper
 - `POST /v1/chat/completions` — 透传到 OpenAI Chat（如果设置了 `AI_MODEL`，会强制覆盖客户端模型；同时只保留 `messages[0]`，丢弃其余消息）
 
-请求大小硬上限 4 MiB；如果设置了 `HMAC_KEY`，客户端必须发送 `x-alog-request-id` 与 `x-alog-hmac` header（密钥需与 `.env` 中的 `HMAC_KEY` 一致）。`OPENAI_KEY` 支持以英文逗号分隔的多个 key，每次请求随机选一个。
+请求大小硬上限 12 MiB；如果设置了 `HMAC_KEY`，客户端必须发送 `x-alog-request-id` 与 `x-alog-hmac` header（密钥需与 `.env` 中的 `HMAC_KEY` 一致）。`OPENAI_KEY` 支持以英文逗号分隔的多个 key，每次请求随机选一个。

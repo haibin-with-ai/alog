@@ -4,5 +4,5 @@ compatibility_date = "2023-07-24"
 
 [env.dev]
 workers_dev = true
-vars = { OPENAI_KEY = "k1,k2,k3", AI_MODEL = "gpt-3.5-turbo-16k", HMAC_KEY = "abc" }
+vars = { OPENAI_KEY = "k1,k2,k3", AI_MODEL = "gpt-3.5-turbo-16k", HMAC_KEY = "abc", DISCORD_WEBHOOK_URL = "" }
 

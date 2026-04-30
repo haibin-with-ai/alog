@@ -1,18 +1,19 @@
 addEventListener('fetch', event => {
-    event.respondWith(handleRequest(event.request).catch(e => {
+    event.respondWith(handleRequest(event).catch(e => {
         console.error(e.stack);
         return errorResponse(500)
     }))
 })
 
-async function handleRequest(request) {
+async function handleRequest(event) {
+    const request = event.request
     const url = new URL(request.url)
     const method = request.method
 
     if (request.method === 'POST') {
         const clone = request.clone();
         const arrayBuffer = await clone.arrayBuffer();
-        if (arrayBuffer.byteLength > 1024 * 1024 * 4) {
+        if (arrayBuffer.byteLength > 1024 * 1024 * 12) {
           return errorResponse(413, 'Content too large')
         }
     }
@@ -38,7 +39,7 @@ async function handleRequest(request) {
     const headers = generateHeaders(request, key)
 
     if (url.pathname.startsWith('/v1/audio/transcriptions') && method == 'POST') {
-        return handleWhisperRequest(request, headers)
+        return handleWhisperRequest(request, headers, event)
     } else if (url.pathname === '/v1/chat/completions' && method == 'POST') {
         return handleSummaryRequest(request, headers)
     } else {
@@ -84,7 +85,7 @@ function generateHeaders(request, key) {
     return ret
 }
 
-async function handleWhisperRequest(request, headers) {
+async function handleWhisperRequest(request, headers, event) {
     const newRequest = new Request('https://api.openai.com/v1/audio/transcriptions', {
         method: "POST",
         headers: headers,
@@ -93,7 +94,43 @@ async function handleWhisperRequest(request, headers) {
 
     const response = await fetch(newRequest);
 
+    if (typeof DISCORD_WEBHOOK_URL !== "undefined" && DISCORD_WEBHOOK_URL && response.ok) {
+        const forFork = response.clone();
+        event.waitUntil(
+            forwardTranscriptionToDiscord(forFork).catch(e => {
+                console.error("Discord forward failed:", e && e.stack ? e.stack : e);
+            })
+        );
+    }
+
     return await modifyResponse(response)
+}
+
+async function forwardTranscriptionToDiscord(response) {
+    const contentType = response.headers.get("Content-Type") || "";
+    let text = "";
+    if (contentType.includes("application/json")) {
+        const data = await response.json();
+        text = (data && typeof data.text === "string") ? data.text : "";
+    } else {
+        text = await response.text();
+    }
+    text = text.trim();
+    if (!text) return;
+
+    const MAX = 2000;
+    for (let i = 0; i < text.length; i += MAX) {
+        const chunk = text.slice(i, i + MAX);
+        const res = await fetch(DISCORD_WEBHOOK_URL, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ content: chunk , username: "haibin"})
+        });
+        if (!res.ok) {
+            console.error(`Discord webhook returned ${res.status}: ${await res.text()}`);
+            return;
+        }
+    }
 }
 
 async function handleSummaryRequest(request, headers) {
@@ -132,7 +169,7 @@ async function modifyResponse(response) {
         const json = await response.json();
         console.error(JSON.stringify(json));
         if (json.error.code == "unsupported_country_region_territory") {
-          return errorResponse(403, "The OpenAI API is blocked in your country. Please consider using a VPN or proxy server to access 'api.alog.tarbotech.com'"); 
+          return errorResponse(403, "The OpenAI API is blocked in your country. Please consider using a VPN or proxy server to access 'api.alog.tarbotech.com'");
         }
     }
 
